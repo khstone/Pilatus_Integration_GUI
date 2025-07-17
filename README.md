@@ -1,0 +1,1 @@
+This is a graphical user interface for the integration of powder diffraction data measured at SSRL beamline 2-1 using the Pilatus 100K small area detector.  This also provides visualization of data as it is integrated alongside previously integrated data.  Includes an executable of a stable version.
