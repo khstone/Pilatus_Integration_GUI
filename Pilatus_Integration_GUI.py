@@ -20,6 +20,13 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtCore import QThread, pyqtSignal
 import Integration_engine as engine
 import Integration_worker
+import live_mode
+
+try:                                    # optional: transformation detection in live mode
+    import insitu_seg
+    HAVE_INSITU_SEG = True
+except ImportError:
+    HAVE_INSITU_SEG = False
 
 # This is only needed when using pyinstaller to create an executable
 def resource_path(relative_path):
@@ -497,6 +504,18 @@ class PilatusIntegrationGUI(QWidget):
         # Add it to your layout (e.g., at the bottom)
         self.layout().addWidget(self.progress_bar)  # Adjust based on your layout
 
+        # Live mode controller. Factories resolve at call time so tests can substitute them.
+        self.live = live_mode.LiveController(
+            worker_factory=lambda *a: Integration_worker.IntegrationWorker(*a),
+            write_data=lambda *a: engine.write_data(*a),
+            parent=self)
+        self.live.scan_integrated.connect(self.handle_live_result)
+        self.live.events_found.connect(self.handle_live_events)
+        self.live.status.connect(self.update_live_status)
+        self.live.error.connect(self.update_live_status)
+        self.live_scans = []      # (scan number, plot name) in arrival order
+        self.live_events = []     # insitu_seg.Event objects
+
     def init_ui(self):
         # Layout Setup
         main_layout = QVBoxLayout()  # Changed to QVBoxLayout for toolbar placement
@@ -641,6 +660,43 @@ class PilatusIntegrationGUI(QWidget):
         # Integrate Button
         integrate_button = QPushButton("Integrate", self)
         integrate_button.clicked.connect(self.plot_integrated_data)
+        self.integrate_button = integrate_button
+
+        # Live Mode: integrate each new scan automatically and show a live waterfall
+        self.live_group = QGroupBox("Live Mode")
+        live_layout = QVBoxLayout()
+        self.live_toggle = QCheckBox("Live integration (auto-integrate new scans)", self)
+        self.live_toggle.stateChanged.connect(self.toggle_live)
+        live_start_layout = QHBoxLayout()
+        live_start_layout.addWidget(QLabel("Start at scan:"))
+        self.live_start_input = QLineEdit(self)
+        self.live_start_input.setPlaceholderText("scan in progress / next")
+        self.live_start_input.setToolTip("Leave blank to start with the scan in progress (or the next scan). "
+                                         "Enter a number to also integrate earlier scans already collected.")
+        live_start_layout.addWidget(self.live_start_input)
+        self.live_detect_toggle = QCheckBox("Detect transformations (insitu-seg)", self)
+        self.live_detect_toggle.setEnabled(HAVE_INSITU_SEG)
+        self.live_detect_toggle.setChecked(HAVE_INSITU_SEG)
+        self.live_detect_toggle.setToolTip(
+            "Flags reactions, phase changes, and peak sharpening/broadening a few scans behind."
+            if HAVE_INSITU_SEG else "Install the insitu-seg package to enable.")
+        self.live_follow_toggle = QCheckBox("Show live waterfall", self)
+        self.live_follow_toggle.setChecked(True)
+        self.live_follow_toggle.stateChanged.connect(lambda _: self.plot_live_waterfall())
+        self.live_status_label = QLabel("Live mode off", self)
+        self.live_status_label.setWordWrap(True)
+        self.event_list = QListWidget(self)
+        self.event_list.setMaximumHeight(110)
+        self.event_list.setToolTip("Detected transformations: scan, confidence, detector families")
+        for wdg in (self.live_toggle,):
+            live_layout.addWidget(wdg)
+        live_layout.addLayout(live_start_layout)
+        live_layout.addWidget(self.live_detect_toggle)
+        live_layout.addWidget(self.live_follow_toggle)
+        live_layout.addWidget(self.live_status_label)
+        live_layout.addWidget(QLabel("Detected events:"))
+        live_layout.addWidget(self.event_list)
+        self.live_group.setLayout(live_layout)
         
         # Plot List Widget
         self.plot_list = QListWidget(self)
@@ -669,6 +725,7 @@ class PilatusIntegrationGUI(QWidget):
         left_layout.addWidget(integrate_button)
         left_layout.addWidget(self.overlay_toggle)  # Add the toggle to the layout
         left_layout.addWidget(self.contour_plot_toggle)
+        left_layout.addWidget(self.live_group)
         left_layout.addWidget(self.plot_list_label)
         left_layout.addWidget(self.plot_list)
         
@@ -818,39 +875,27 @@ class PilatusIntegrationGUI(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error reading parameters from calibration file: {e}")
     
+    def _inputs_ok(self):
+        """Check the inputs needed for integration (manual or live); warn and return False if not."""
+        checks = [
+            (self.spec_path and os.path.isfile(self.spec_path), "Please select a valid SPEC file."),
+            (self.image_path and os.path.isdir(self.image_path), "Please select a valid image directory."),
+            (self.output_path and os.path.isdir(self.output_path), "Please select a valid output directory."),
+            (self.xyz_map is not None, "Please select a valid calibration file."),
+            (bool(self.user), "No user name was found in the SPEC file."),
+        ]
+        for ok, msg in checks:
+            if not ok:
+                QMessageBox.warning(self, "Input Error", msg)
+                return False
+        return True
+
     def plot_integrated_data(self):
         """Called when the Integrate button is clicked."""
-
-        if not self.spec_path or not os.path.isfile(self.spec_path):
-            QMessageBox.warning(
-                self, "Input Error", "Please select a valid SPEC file."
-            )
+        if self.live.active:
+            QMessageBox.warning(self, "Live Mode", "Turn off live mode to integrate by hand.")
             return
-
-        if not self.image_path or not os.path.isdir(self.image_path):
-            QMessageBox.warning(
-                self, "Input Error", "Please select a valid image directory."
-            )
-            return
-
-        if not self.output_path or not os.path.isdir(self.output_path):
-            QMessageBox.warning(
-                self, "Input Error", "Please select a valid output directory."
-            )
-            return
-
-        if self.xyz_map is None:
-            QMessageBox.warning(
-                self, "Input Error", "Please select a valid calibration file."
-            )
-            return
-
-        if not self.user:
-            QMessageBox.warning(
-                self,
-                "Input Error",
-                "No user name was found in the SPEC file."
-            )
+        if not self._inputs_ok():
             return
         # Warn only in response to another button click.
         if self.worker is not None and self.worker.isRunning():
@@ -975,10 +1020,110 @@ class PilatusIntegrationGUI(QWidget):
         QMessageBox.critical(self, "Error", error_msg)
         
     def closeEvent(self, event):
+        if self.live.active:
+            self.live.active = False
+            self.live.timer.stop()
+        if self.live.worker is not None:
+            self.live.worker.wait()           # let a live integration finish (~0.2 s)
         if self.worker and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
         event.accept()
+
+    # ------------------------------------------------------------------ live mode
+    def toggle_live(self, state):
+        if state == Qt.Checked:
+            if self.worker is not None and self.worker.isRunning():
+                QMessageBox.warning(self, "Live Mode", "Wait for the current integration to finish.")
+                self.live_toggle.setChecked(False)
+                return
+            if not self._inputs_ok():
+                self.live_toggle.setChecked(False)
+                return
+            text = self.live_start_input.text().strip()
+            try:
+                start = int(text) if text else None
+            except ValueError:
+                QMessageBox.warning(self, "Live Mode", f"Start scan must be a number: {text}")
+                self.live_toggle.setChecked(False)
+                return
+            self.live_scans, self.live_events = [], []
+            self.event_list.clear()
+            self.integrate_button.setEnabled(False)
+            self.live_start_input.setEnabled(False)
+            self.live_detect_toggle.setEnabled(False)
+            self.live.start(self.spec_path, self.image_path, self.user, self.xyz_map,
+                            self.integration_settings, self.output_path, start_scan=start,
+                            detect=self.live_detect_toggle.isChecked())
+        else:
+            if self.live.active:
+                self.live.stop()
+            self.integrate_button.setEnabled(True)
+            self.live_start_input.setEnabled(True)
+            self.live_detect_toggle.setEnabled(HAVE_INSITU_SEG)
+
+    def update_live_status(self, message):
+        self.live_status_label.setText(message)
+        self.status_bar.showMessage(message, 5000)
+
+    def handle_live_result(self, scan_name, scan, x, y, e):
+        """A live scan was integrated and written: store, list, and redraw the waterfall."""
+        self.plot_data[scan_name] = {'x': np.asarray(x), 'y': np.asarray(y), 'e': np.asarray(e)}
+        if not self.plot_list.findItems(scan_name, Qt.MatchExactly):
+            self.plot_list.addItem(QListWidgetItem(scan_name))
+        self.live_scans.append((scan, scan_name))
+        self.plot_live_waterfall()
+
+    def handle_live_events(self, events):
+        for ev in events:
+            self.live_events.append(ev)
+            t = f", {ev.T_C:.0f} °C" if ev.T_C is not None else ""
+            d = f", {ev.profile_direction}" if ev.profile_direction else ""
+            self.event_list.addItem(f"scan {ev.scan} [{ev.confidence}] {'+'.join(ev.families)}{d}{t}")
+        self.plot_live_waterfall()
+
+    def plot_live_waterfall(self):
+        """Intensity vs 2theta and scan for all live scans, with detected events marked."""
+        if not self.live_follow_toggle.isChecked() or not self.live_scans:
+            return
+        if hasattr(self, 'colorbar') and self.colorbar:
+            self.colorbar.remove()
+            self.colorbar = None
+        self.ax.clear()
+        scans = [s for s, _ in self.live_scans]
+        names = [n for _, n in self.live_scans]
+        x0 = self.plot_data[names[0]]['x']
+        if len(names) == 1:
+            self.ax.plot(x0, self.plot_data[names[0]]['y'], linewidth=self.plot_settings['line_width'])
+            self.ax.set_xlabel("2-theta")
+            self.ax.set_ylabel("Integrated Intensity")
+            self.ax.set_title(f"Live: scan {scans[0]}", loc="left")
+            self.canvas.draw()
+            return
+        img = np.array([np.interp(x0, self.plot_data[n]['x'], self.plot_data[n]['y']) for n in names])
+        if self.plot_settings['log_scale']:
+            img, label = np.log(np.clip(img, 1e-12, None)), "log(Intensity)"
+        elif self.plot_settings['sqrt_scale']:
+            img, label = np.sqrt(np.clip(img, 0, None)), "SQRT(Intensity)"
+        else:
+            label = "Intensity"
+        # 'antialiased': ~9000 2theta points shown in a few hundred pixels; 'nearest' aliases
+        # narrow peaks in and out of view (seen as streaks in the first live rehearsal).
+        im = self.ax.imshow(img, aspect="auto", origin="lower", interpolation="antialiased",
+                            cmap=self.plot_settings['colormap'],
+                            extent=[x0[0], x0[-1], scans[0] - 0.5, scans[-1] + 0.5],
+                            vmin=np.percentile(img, 1), vmax=np.percentile(img, 99.7))
+        self.colorbar = self.fig.colorbar(im, ax=self.ax, label=label)
+        for ev in self.live_events:
+            self.ax.axhline(ev.scan, color="white", lw=1.0 if ev.confidence == "high" else 0.6,
+                            ls="-" if ev.confidence == "high" else ":")
+        if not self.plot_settings.get('automatic_x', True):
+            self.ax.set_xlim(self.plot_settings['min_x'], self.plot_settings['max_x'])
+        self.ax.set_xlabel("2-theta")
+        self.ax.set_ylabel("Scan Number")
+        self.ax.set_title(f"Live: scans {scans[0]}-{scans[-1]}"
+                          + (f", {len(self.live_events)} events" if self.live_events else ""), loc="left")
+        self.canvas.draw()
 
     def replot_selected(self):
         """Replots selected items, handling both single, overlay, and contour plot modes."""
@@ -1182,10 +1327,17 @@ class PilatusIntegrationGUI(QWidget):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
     
         if reply == QMessageBox.Yes:
+            # Stop live mode first, then reset its lists
+            if self.live.active:
+                self.live_toggle.setChecked(False)
+            self.live_scans, self.live_events = [], []
+            self.event_list.clear()
+            self.live_status_label.setText("Live mode off")
+
             # Clear the plot
             self.ax.clear()
             self.canvas.draw()
-    
+
             # Reset input fields
             self.calib_path_input.clear()
             self.spec_path_input.clear()
