@@ -105,6 +105,24 @@ def test_data_list_keeps_its_space_when_switching_scan_mode(window):
     assert h0 >= 120, f"data list should keep usable space in a 1000x600 window, got {h0}px"
 
 
+def test_contents_grow_with_the_window(window):
+    """Maximizing/enlarging the window must enlarge the plot and the data list in both
+    directions (the panels once stayed at their old height)."""
+    w, app = window
+    w.resize(1000, 600)
+    w.show()
+    for _ in range(5):
+        app.processEvents()
+    c0, l0, s0 = w.canvas.size(), w.plot_list.height(), w.main_splitter.height()
+    w.resize(1600, 1000)
+    for _ in range(5):
+        app.processEvents()
+    assert w.main_splitter.height() >= 0.85 * w.height() - 60, "panels must take the extra height"
+    assert w.main_splitter.height() - s0 >= 350
+    assert w.canvas.height() - c0.height() >= 300 and w.canvas.width() - c0.width() >= 500
+    assert w.plot_list.height() - l0 >= 300, "data list should take most of the extra height"
+
+
 def test_calibration_menu_does_not_crash(window, monkeypatch):
     w, app = window
     shown = []

@@ -784,7 +784,12 @@ class PilatusIntegrationGUI(QWidget):
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.setSizes([340, 660])
-        main_layout.addWidget(self.main_splitter)
+        # Expanding + stretch 1: the splitter takes all extra space when the window grows.
+        # (Without this, a QSplitter is 'Preferred' vertically and maximizing left the
+        # contents at their old height.)
+        self.main_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.left_splitter.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        main_layout.addWidget(self.main_splitter, 1)
 
         # Add central layout and status bar to the main layout
         main_layout.addWidget(self.status_bar)
