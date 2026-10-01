@@ -1,0 +1,80 @@
+#F KHS10_27D_CaCO3_CuO_anneal
+#E 1779644155
+#D Sun May 24 10:35:55 2026
+#C twoc  User = b_stone
+
+#O0 tth  th  M0Vtran  M0Pitch  M0Yaw  Motor 3  M0Bend  s06
+#O1 M0Horzslt  M0Vertslt  Crystal  Analyzer  s12  s13  Table_vert  Thor
+#O2 I0vert  I0horz  Gonio_X  Gonio_Y  Gonio_Chi  Gonio_Theta  V0gap  V0tran
+#O3 H0gap  H0tran  Top1Vert  Bttm1Vert  Left1Hor  Right1Hor  Top2Vert  Bttm2Vert
+#O4 Left2Hor  Right2Hor  Z-stage  <D Vertical  bsx  bsy  fpy  fpx
+#O5 sarc  s47  vortex_x  vortex_y  vortex_z  sample  s54  s55
+#O6 s56  s57  pinhorz  pinvert  h1gap  h1tran  v1gap  v1tran
+#O7 h2gap  h2tran  v2gap  v2tran  v3gap  v3tran  h3gap  h3tran
+#O8 calcQ  Monochrom  tempset  cryomot  cth  ctth  kmotV  monpit
+#O9 monroll  
+#o0 tth th m0vtran m0pitch m0yaw m3 m0bend s06
+#o1 m0hsl m0vsl crystal anz s12 s13 table thor
+#o2 i0vert i0horz gonx gony gonchi gonthe v0gap v0tran
+#o3 h0gap h0tran t1v b1v l1h r1h t2v b2v
+#o4 l2h r2h zstage ald bsx bsy fpy fpx
+#o5 sarc s47 vort_x vort_y vort_z sample s54 s55
+#o6 s56 s57 pinhorz pinvert h1gap h1tran v1gap v1tran
+#o7 h2gap h2tran v2gap v2tran v3gap v3tran h3gap h3tran
+#o8 _Q mono tempset cryomot cth ctth kmotV monpit
+#o9 monroll 
+#J0 Seconds  Monitor  Detector  I0  I2  Foils  Normalized  A34410
+#J1 kpow  ch5  mpf_top  mpf_bot  ICRxT  OCRxT  ROI1  ROI2
+#J2 ROI3  ROI4  ROI5  ROI6  ROI7  TEMP  TTIMER  CTEMP
+#J3 Timer  gkcnt1  gkcnt2  keith_I  keith_V  pd1  pd2  pd3
+#J4 pd4  pd5  pd6  pd7  pd8  pd9  pd10  pd11
+#J5 pd12  pd13  pd14  pd15  pd16  pd17  pd18  agdaq1
+#J6 agdaq2  agdaq3  agdaq4  CTEMPB  
+#j0 sec mon det i0 i2 fstat normlz A34410
+#j1 kpow ch5 ch6 ch7 ICR OCR ROI1 ROI2
+#j2 ROI3 ROI4 ROI5 ROI6 ROI7 TEMP tempsec CTEMP
+#j3 timesec gkcnt1 gkcnt2 keith_I keith_V pd1 pd2 pd3
+#j4 pd4 pd5 pd6 pd7 pd8 pd9 pd10 pd11
+#j5 pd12 pd13 pd14 pd15 pd16 PD_MIN PD_MAX agdaq1
+#j6 agdaq2 agdaq3 agdaq4 CTEMPB 
+
+#C Sun May 24 10:36:12 2026.  do ./CaCO3_CuO_for_HEO_capillary.mac.
+
+#S 1  ascan  tth 5 45  15 3
+#D Sun May 24 10:36:12 2026
+#T 3  (Seconds)
+#G0 0
+#G1 1.54 1.54 90 4.079990459 4.079990459 90 1 0 60 30 0
+#G3 4.079990459 2.498273628e-16 0 4.079990459
+#G4 1.493097155 -0.6184610917 0 0.7293192137
+#Q 1.4931 -0.618461
+#P0 45 -7.1525573e-09 -11.491507 2.0799425 6.4335915 0 7.0729616 -2.2451
+#P1 1.3589 -11.93165 6.678414 6.67841 0 0 -0.93206925 1.56083
+#P2 5.85545 5.45 -1.9647408 0 0 0 0.699975 -0.0915
+#P3 2 -0.35329167 0.49875 0.50125 2.45 2.55 2.5 2.5
+#P4 2.5 2.5 7.726075 0 0 0 0 0
+#P5 0 0 3.29946 2.306875 2.9650075 0 0 0
+#P6 0 0 1.779 2.297 5 0.05 1 -0.001
+#P7 5 0 5 0 3.5 -1 1.5 -0.75
+#P8 6.5937409 16999.997 0 819.95 1 1 440 -14
+#P9 0 
+#N 42
+#L tth  H  K  Epoch  Seconds  I0  I2  Foils  Normalized  A34410  kpow  ch5  mpf_top  mpf_bot  TEMP  TTIMER  gkcnt1  gkcnt2  pd1  pd2  pd3  pd4  pd5  pd6  pd7  pd8  pd9  pd10  pd11  pd12  pd13  pd14  pd15  pd16  pd17  pd18  agdaq1  agdaq2  agdaq3  agdaq4  Monitor  Detector
+5 0.18403443 -0.0080351166 37 3 184382 832     0000 0.00068700426 0 0 120 261000 260073 0 0 0 0 803279 6 3150 144 457 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 176127 121
+7.6666602 0.28170197 -0.018875225 41 3 184346 834     0000 0.0007493741 0 0 132 260895 260120 0 0 0 0 688670 8 3447 161 498 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 176147 132
+10.33334 0.37876012 -0.034247726 46 3 184272 834     0000 9.0877594e-05 0 0 16 260934 259691 0 0 0 0 643575 8 3267 151 486 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 176061 16
+13 0.47499725 -0.054119101 50 3 184309 833     0000 0.00010223497 0 0 18 260730 260204 0 0 0 0 587231 5 2595 121 370 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 176065 18
+15.66666 0.57020565 -0.078446409 55 3 184214 838     0000 7.3876229e-05 0 0 13 260642 259998 0 0 0 0 580421 7 1946 96 283 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175970 13
+18.33334 0.6641798 -0.10717719 59 3 184261 832     0000 7.9554043e-05 0 0 14 260455 260096 0 0 0 0 476121 8 3241 154 439 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175981 14
+21 0.7567148 -0.1402488 64 3 184161 834     0000 8.5270877e-05 0 0 15 260375 259797 0 0 0 0 408403 9 1428 89 204 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175910 15
+23.66666 0.84761093 -0.1775898 68 3 184199 833     0000 3.4100597e-05 0 0 6 260579 259758 0 0 0 0 317117 6 1399 73 206 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175950 6
+26.33334 0.93667198 -0.21911965 73 3 184117 833     0000 6.8249292e-05 0 0 12 260402 259716 0 0 0 0 261585 3 1062 56 174 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175826 12
+29 1.0237038 -0.26474779 77 3 184056 833     0000 0.00014785244 0 0 26 260447 259562 0 0 0 0 270171 2 1197 68 207 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175851 26
+31.66666 1.1085184 -0.31437569 82 3 184042 838     0000 0.0002502531 0 0 43 260317 259823 0 0 0 0 276852 0 1105 60 150 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175822 44
+34.33334 1.1909329 -0.36789628 86 3 184012 841     0000 0.00029006939 0 0 50 260439 259549 0 0 0 0 230747 1 806 41 111 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175820 51
+37 1.2707675 -0.42519285 91 3 183985 842     0000 0.00048909767 0 0 86 260331 259497 0 0 0 0 206814 2 1081 50 138 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175834 86
+39.66666 1.3478499 -0.4861417 95 3 183911 845     0000 0.0008139707 0 0 143 260439 259197 0 0 0 0 201896 4 968 45 132 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175682 143
+42.33334 1.4220137 -0.5506113 100 3 183859 853     0000 0.0010529012 0 0 185 260273 259370 0 0 0 0 186531 1 903 40 137 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175705 185
+45 1.4930972 -0.61846109 104 3 183855 851     0000 0.000876504 0 0 154 259948 259578 0 0 0 0 178217 0 812 29 126 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 -2 0 0 0 0 0 0 175698 154
+#C Sun May 24 10:38:04 2026.  do CaCO3_CuO_for_HEO_capillary.mac.
+

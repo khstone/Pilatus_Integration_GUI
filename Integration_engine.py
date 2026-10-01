@@ -189,6 +189,30 @@ def cart2sphere(map):
     tth_map = tth_map.reshape(data.shape)
     return tth_map%180.0
 
+def _bin_grid(stepsize):
+    """Bin labels and histogram arguments derived from one integer bin count, so the label
+    array and the histogram always have the same length and every bin is exactly stepsize
+    wide. (Before 2026-10: ceil(180/step) bins over 0-180 could differ in length from
+    arange(0, 180, step) and, for steps that do not divide 180, made bins slightly wider than
+    requested.) Identical output for steps that divide 180, e.g. 0.005."""
+    nb = int(round(180.0 / stepsize))
+    bins = np.arange(nb) * stepsize
+    return bins, nb, (0.0, nb * stepsize)
+
+
+def _bin_image(x, y, stepsize, nb, hist_range):
+    """Histogram one image's pixels with the same binning as integrate(): bin j holds pixels
+    with x in [(j-1)*step, j*step), labelled bins[j]. Masked pixels (y < 0) are excluded.
+    Returns per-bin n, sum(y), sum(y^2)."""
+    valid = y >= 0
+    yv = np.where(valid, y, 0.0)
+    xs = x + stepsize
+    n = np.histogram(xs, weights=valid.astype(float), range=hist_range, bins=nb)[0]
+    s = np.histogram(xs, weights=yv, range=hist_range, bins=nb)[0]
+    ss = np.histogram(xs, weights=yv * yv, range=hist_range, bins=nb)[0]
+    return n, s, ss
+
+
 class IntegrationEngine:
     def __init__(self):
         self.progress_callback = None  # Callback for progress updates
@@ -210,7 +234,7 @@ class IntegrationEngine:
         y = []
         xmax_global = 0.0  #set this to some small number so that it gets reset with the first image
         xmin_global = 180.0
-        bins = np.arange(0.0, 180.0, stepsize)  # create all of the bins from 0-180 with the specified stepsize
+        bins, nb, hist_range = _bin_grid(stepsize)  # bin labels 0..180 at the specified stepsize
         digit_y = np.zeros_like(bins)   # this will hold the intensities for each bin
         digit_norm = np.zeros_like(bins)    # this will hold the normalization value (monitor counts) for each bin
         for k in range(0, len(tth)):        # loop through images at every 2-theta value
@@ -225,8 +249,8 @@ class IntegrationEngine:
             y_0 = np.where(y < 0, np.zeros_like(y), y)  # create a list of intensities where any negative numbers are set to 0, this is for every pixel in the current image
             y_1 = np.where(y < 0, np.zeros_like(y), np.ones_like(y))    # create a map of which intensities are to be used (0 if masked out, 1 if included), for every pixel in the current image
     
-            digit_y += np.histogram(x + stepsize, weights=y_0, range=(0,180), bins=int(math.ceil(180.0/stepsize)))[0]
-            digit_norm += np.histogram(x + stepsize, weights=y_1, range=(0,180), bins=int(math.ceil(180.0/stepsize)))[0]
+            digit_y += np.histogram(x + stepsize, weights=y_0, range=hist_range, bins=nb)[0]
+            digit_norm += np.histogram(x + stepsize, weights=y_1, range=hist_range, bins=nb)[0]
             
             
             # Report progress if callback exists
@@ -256,7 +280,15 @@ class IntegrationEngine:
         
         return outname, interpbins[good_data], mult * interpy[good_data], np.sqrt(np.abs(mult * interpy[good_data]))
 
-    def integrate_var(self, specfile, scan_num, image_path, user, xyz_map, settings):  # Integrates data using variance for esd values
+    def integrate_var(self, specfile, scan_num, image_path, user, xyz_map, settings):
+        """Azimuthal error model: sigma = spread (sample standard deviation) of the pixel values
+        in each 2theta bin, so spotty rings get large errors and smooth rings errors near
+        counting statistics.
+
+        Same binning, 2theta grid, and intensities as integrate(); only the error column
+        differs. (Before 2026-10 this returned the variance rather than sigma, on a 2theta
+        axis offset from the intensities by the start of the data range, ~1.6 deg for the
+        May 2026 data; it also looped over every pixel in Python.)"""
         start_time = time.time()
         stepsize = float(settings['stepsize'])
         lowclip = int(settings['img_clip_low'])
@@ -266,47 +298,44 @@ class IntegrationEngine:
         image_path = image_path + "/"
         tth, i0 = SPECread(spec_path + spec_name, scan_num)
         mult = float(i0[0])   # multiplier to put everything back onto a rough scale of counts/pixel
-        x = []
-        y = []
-        xmax_global = 0.0  #set this to some small number so that it gets reset with the first image
-        xmin_global = 180.0
-        bins = np.arange(0.0, 180.0, stepsize)  # create all of the bins from 0-180 with the specified stepsize
-        y_list = [RunningStats(index=i) for i in range(0, len(bins))]  # create a list of RunningStats for every 2-theta bin
+        bins, nb, hist_range = _bin_grid(stepsize)
+        n = np.zeros_like(bins)
+        s = np.zeros_like(bins)
+        ss = np.zeros_like(bins)
         for k in range(0, len(tth)):        # loop through images at every 2-theta value
-            x = []
-            y = []
             filename = image_path + user + "_" + spec_name + "_scan" + str(scan_num) + "_" + str(k).zfill(4) + ".raw"
             data = read_RAW(filename, lowclip, highclip)
-            xyz_map_prime = rotate_operation(xyz_map, tth[k])
-            tth_map = cart2sphere(xyz_map_prime)
-            x = tth_map.flatten()  # flatten into a list of all 2-theta values
-            y = data.flatten()/i0[k]    # flatten into a list of all intensity values (normalized by I0)
-            bin_indices = np.digitize(x, bins)  # array of indices mapping x into the correct bins (index of bins for each x value)
-            for i in range(0, len(x)):
-                if y[i] >= 0:
-                    y_list[bin_indices[i]].add(y[i])
-            # Report progress if callback exists
+            tth_map = cart2sphere(rotate_operation(xyz_map, tth[k]))
+            dn, ds, dss = _bin_image(tth_map.flatten(), data.flatten() / i0[k], stepsize, nb, hist_range)
+            n += dn
+            s += ds
+            ss += dss
             if self.progress_callback:
                 self.progress_callback((k + 1) / len(tth))
-                    
-        digit_norm = [obj.mean for obj in y_list]
-        variance = [obj.variance() for obj in y_list]
-        y_array = np.array(digit_norm)
-        var_array = np.array(variance)
-        nonzeros = np.nonzero(digit_norm)
+
+        nonzeros = np.nonzero(n)
+        mean = s[nonzeros] / n[nonzeros]
+        # sample variance from sums (float64; values are I0-normalized counts, well conditioned)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            var = (ss[nonzeros] - s[nonzeros] ** 2 / n[nonzeros]) / (n[nonzeros] - 1)
+        sigma = np.sqrt(np.clip(np.nan_to_num(var, nan=0.0), 0.0, None))
+
+        # Same grid and intensity interpolation as integrate(); sigma interpolated linearly
+        # (exact at bins with data; a spline could go negative).
+        interp = interpolate.InterpolatedUnivariateSpline(bins[nonzeros], mean)
         interpbins = np.arange(min(bins[nonzeros]), max(bins[nonzeros]), stepsize)
         interpbins = np.around(interpbins, decimals=3)
-        
+        interpy = interp(interpbins)
+        interpe = np.interp(interpbins, bins[nonzeros], sigma)
+
         outname = spec_name + "_scan" + str(scan_num) + ".xye"
-        
-        good_data = np.where(np.logical_and(interpbins>=settings['min_tth'], interpbins<=settings['max_tth']))  # only take data above a certain 2-theta value
-        
-        end_time = time.time()  # Record the ending time
-        elapsed_time = end_time - start_time
-        
-        print(f"Elapsed time variance: {elapsed_time:.4f} seconds")
-        
-        return outname, bins[good_data], mult * y_array[good_data], mult * var_array[good_data]
+        good_data = np.where(np.logical_and(interpbins >= settings['min_tth'], interpbins <= settings['max_tth']))
+
+        print(f"Elapsed time variance: {time.time() - start_time:.4f} seconds")
+        if self.progress_callback:
+            self.progress_callback(1.0)
+
+        return outname, interpbins[good_data], mult * interpy[good_data], mult * interpe[good_data]
 
 def write_data(output_path, filename, x, y, e):
     outname = output_path + filename
