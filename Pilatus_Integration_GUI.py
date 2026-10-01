@@ -14,14 +14,16 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QCheckBox, QStatusBar, QMenuBar, QAction, QDialog, QFormLayout, QSpinBox,
                              QDoubleSpinBox, QColorDialog, QComboBox, QGroupBox, QRadioButton, QAbstractItemView,
                              QListWidgetItem, QSlider, QStyleFactory, QProgressBar, QGridLayout,
-                             QScrollArea, QSplitter, QStackedWidget, QFrame, QTabWidget)
+                             QScrollArea, QSplitter, QStackedWidget, QFrame, QTabWidget, QTextBrowser)
 from PyQt5.QtGui import QPixmap, QIcon, QDesktopServices
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QColor
 from PyQt5.QtCore import QThread, pyqtSignal
+import re
 import Integration_engine as engine
 import Integration_worker
 import live_mode
+import help_text
 
 try:                                    # optional: transformation detection in live mode
     import insitu_seg
@@ -37,6 +39,22 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+class HelpDialog(QDialog):
+    """Resizable, scrollable, non-modal help page (HTML from help_text)."""
+    def __init__(self, title, html, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QVBoxLayout(self)
+        self.browser = QTextBrowser(self)
+        self.browser.setOpenExternalLinks(True)
+        self.browser.setHtml(html)
+        layout.addWidget(self.browser)
+        close_btn = QPushButton("Close", self)
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn, alignment=Qt.AlignRight)
+        self.resize(820, 640)
+
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -516,6 +534,8 @@ class PilatusIntegrationGUI(QWidget):
         self.live.error.connect(self.update_live_status)
         self.live_scans = []      # (scan number, plot name) in arrival order
         self.live_events = []     # insitu_seg.Event objects
+        self.batch_entries = []   # (scan number, plot name) for detection on loaded data
+        self.batch_events = []
 
     def init_ui(self):
         # Layout Setup
@@ -527,7 +547,27 @@ class PilatusIntegrationGUI(QWidget):
         file_menu = menu_bar.addMenu("File")
         settings_menu = menu_bar.addMenu("Settings")
         calibration_menu = menu_bar.addMenu("Calibration")
+        analysis_menu = menu_bar.addMenu("Analysis")
         help_menu = menu_bar.addMenu("Help")
+
+        # Event detection on data already loaded (imported or integrated)
+        detect_action = QAction("Detect Events in Selected Data", self)
+        detect_action.setToolTip("Run transformation detection on the selected patterns "
+                                 "(all patterns if none are selected)")
+        detect_action.triggered.connect(self.detect_events_in_loaded_data)
+        detect_action.setEnabled(HAVE_INSITU_SEG)
+        analysis_menu.addAction(detect_action)
+        analysis_menu.setToolTipsVisible(True)
+
+        # Help pages for the newer features
+        live_help_action = QAction("Live Mode Guide", self)
+        live_help_action.triggered.connect(lambda: self.show_help("Live Mode Guide", help_text.LIVE_HTML))
+        help_menu.addAction(live_help_action)
+        events_help_action = QAction("Understanding Detected Events", self)
+        events_help_action.triggered.connect(
+            lambda: self.show_help("Understanding Detected Events", help_text.EVENTS_HTML))
+        help_menu.addAction(events_help_action)
+        help_menu.addSeparator()
         
         # Import Integrated Data Action
         import_data_action = QAction("Import Integrated Data", self)
@@ -1140,31 +1180,113 @@ class PilatusIntegrationGUI(QWidget):
         self.live_scans.append((scan, scan_name))
         self.plot_live_waterfall()
 
-    def handle_live_events(self, events):
+    def _add_event_items(self, events):
+        """List events in the Events tab, each with hover text explaining it."""
         for ev in events:
-            self.live_events.append(ev)
             t = f", {ev.T_C:.0f} °C" if ev.T_C is not None else ""
             d = f", {ev.profile_direction}" if ev.profile_direction else ""
-            self.event_list.addItem(f"scan {ev.scan} [{ev.confidence}] {'+'.join(ev.families)}{d}{t}")
+            item = QListWidgetItem(f"scan {ev.scan} [{ev.confidence}] {'+'.join(ev.families)}{d}{t}")
+            item.setToolTip(help_text.event_explanation(ev))
+            self.event_list.addItem(item)
+
+    def handle_live_events(self, events):
+        self.live_events.extend(events)
+        self._add_event_items(events)
         self.data_tabs.setTabText(1, f"Events ({len(self.live_events)})")
         self.plot_live_waterfall()
 
+    def show_help(self, title, html):
+        dlg = HelpDialog(title, html, self)
+        dlg.show()                       # non-modal: can stay open beside the data
+        self._help_dialogs = getattr(self, "_help_dialogs", []) + [dlg]
+        return dlg
+
+    # ------------------------------------------------------------------ events on loaded data
+    @staticmethod
+    def _scan_number(name, fallback):
+        m = re.search(r"_scan(\d+)\.\w+$", name)
+        return int(m.group(1)) if m else fallback
+
+    def detect_events_in_loaded_data(self):
+        """Run insitu-seg on loaded patterns (selected, or all if none selected), ordered by scan
+        number, with the whole set as the baseline. Uses SPEC timestamps and temperatures when
+        the matching SPEC file is loaded."""
+        if not HAVE_INSITU_SEG:
+            QMessageBox.information(self, "Detect Events", "Install the insitu-seg package to enable this.")
+            return
+        if self.live.active:
+            QMessageBox.information(self, "Detect Events", "Live mode is running; its events are already shown.")
+            return
+        names = [it.text() for it in self.plot_list.selectedItems()] or \
+                [self.plot_list.item(i).text() for i in range(self.plot_list.count())]
+        names = [n for n in names if n in self.plot_data]
+        if len(names) < 25:
+            QMessageBox.warning(self, "Detect Events",
+                                f"{len(names)} patterns loaded/selected. Detection needs a series of at "
+                                "least 25 patterns to estimate its noise baseline.")
+            return
+        entries = sorted((self._scan_number(n, i + 1), n) for i, n in enumerate(names))
+        scans = [s for s, _ in entries]
+        if len(set(scans)) != len(scans):
+            QMessageBox.warning(self, "Detect Events",
+                                "Selected patterns have repeated scan numbers (from different runs?). "
+                                "Select one run at a time.")
+            return
+        x0 = self.plot_data[entries[0][1]]['x']
+        I = np.array([np.interp(x0, self.plot_data[n]['x'], self.plot_data[n]['y']) for _, n in entries])
+        times = T = None
+        if self.spec_path and os.path.isfile(self.spec_path):
+            spec_name = os.path.basename(self.spec_path)
+            if all(n.startswith(spec_name + "_scan") for _, n in entries):
+                info = live_mode.parse_spec(self.spec_path)
+                times = np.array([info[s].epoch if s in info and info[s].epoch is not None else np.nan
+                                  for s in scans])
+                temps = [info[s].mean_temp if s in info else None for s in scans]
+                if any(t is not None for t in temps):
+                    T = np.array([np.nan if t is None else t for t in temps])
+        series = insitu_seg.Series(x0, I, scans, times=times, T=T, label="loaded data")
+        self.status_bar.showMessage(f"Detecting events in {len(scans)} patterns...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            res = insitu_seg.analyze(series)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.batch_entries, self.batch_events = entries, res.events
+        self.event_list.clear()
+        self._add_event_items(res.events)
+        self.data_tabs.setTabText(1, f"Events ({len(res.events)})")
+        self.data_tabs.setCurrentIndex(1)
+        self._draw_waterfall(entries, res.events,
+                             f"Loaded data: scans {scans[0]}-{scans[-1]}, {len(res.events)} events")
+        n_high = sum(e.confidence == "high" for e in res.events)
+        self.status_bar.showMessage(
+            f"{len(res.events)} events ({n_high} high confidence) in scans {scans[0]}-{scans[-1]}", 8000)
+        return res
+
+    # ------------------------------------------------------------------ waterfall
     def plot_live_waterfall(self):
         """Intensity vs 2theta and scan for all live scans, with detected events marked."""
         if not self.live_follow_toggle.isChecked() or not self.live_scans:
             return
+        scans = [s for s, _ in self.live_scans]
+        self._draw_waterfall(self.live_scans, self.live_events,
+                             f"Live: scans {scans[0]}-{scans[-1]}"
+                             + (f", {len(self.live_events)} events" if self.live_events else ""))
+
+    def _draw_waterfall(self, entries, events, title):
+        """entries: [(scan number, plot name)] in scan order."""
         if hasattr(self, 'colorbar') and self.colorbar:
             self.colorbar.remove()
             self.colorbar = None
         self.ax.clear()
-        scans = [s for s, _ in self.live_scans]
-        names = [n for _, n in self.live_scans]
+        scans = [s for s, _ in entries]
+        names = [n for _, n in entries]
         x0 = self.plot_data[names[0]]['x']
         if len(names) == 1:
             self.ax.plot(x0, self.plot_data[names[0]]['y'], linewidth=self.plot_settings['line_width'])
             self.ax.set_xlabel("2-theta")
             self.ax.set_ylabel("Integrated Intensity")
-            self.ax.set_title(f"Live: scan {scans[0]}", loc="left")
+            self.ax.set_title(title, loc="left")
             self.canvas.draw()
             return
         img = np.array([np.interp(x0, self.plot_data[n]['x'], self.plot_data[n]['y']) for n in names])
@@ -1181,15 +1303,14 @@ class PilatusIntegrationGUI(QWidget):
                             extent=[x0[0], x0[-1], scans[0] - 0.5, scans[-1] + 0.5],
                             vmin=np.percentile(img, 1), vmax=np.percentile(img, 99.7))
         self.colorbar = self.fig.colorbar(im, ax=self.ax, label=label)
-        for ev in self.live_events:
+        for ev in events:
             self.ax.axhline(ev.scan, color="white", lw=1.0 if ev.confidence == "high" else 0.6,
                             ls="-" if ev.confidence == "high" else ":")
         if not self.plot_settings.get('automatic_x', True):
             self.ax.set_xlim(self.plot_settings['min_x'], self.plot_settings['max_x'])
         self.ax.set_xlabel("2-theta")
         self.ax.set_ylabel("Scan Number")
-        self.ax.set_title(f"Live: scans {scans[0]}-{scans[-1]}"
-                          + (f", {len(self.live_events)} events" if self.live_events else ""), loc="left")
+        self.ax.set_title(title, loc="left")
         self.canvas.draw()
 
     def replot_selected(self):
@@ -1396,6 +1517,7 @@ class PilatusIntegrationGUI(QWidget):
             if self.live.active:
                 self.live_toggle.setChecked(False)
             self.live_scans, self.live_events = [], []
+            self.batch_entries, self.batch_events = [], []
             self.event_list.clear()
             self.data_tabs.setTabText(1, "Events")
             self.live_status_label.setText("Live mode off")
