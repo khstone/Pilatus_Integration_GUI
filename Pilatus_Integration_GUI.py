@@ -273,6 +273,182 @@ class PlotSettingsDialog(QDialog):
             'sqrt_scale': self.sqrt_scale_button.isChecked()
         }
 
+# ===================== Dialog to run calibration script =====================
+class RunCalibDialog(QDialog):
+    """
+    Dialog that asks for:
+      - calibration file (file path)
+      - image directory
+      - output directory
+    and then runs an external Python script.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Run Calibration Script")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # CSV file
+        csv_layout = QHBoxLayout()
+        csv_label = QLabel("CSV file:", self)
+        self.csv_edit = QLineEdit(self)
+        csv_browse = QPushButton("Browse...", self)
+        csv_browse.clicked.connect(self.browse_csv)
+        csv_layout.addWidget(csv_label)
+        csv_layout.addWidget(self.csv_edit)
+        csv_layout.addWidget(csv_browse)
+        layout.addLayout(csv_layout)
+
+        # Image path (directory)
+        img_layout = QHBoxLayout()
+        img_label = QLabel("Image directory:", self)
+        self.img_edit = QLineEdit(self)
+        img_browse = QPushButton("Browse...", self)
+        img_browse.clicked.connect(self.browse_img_dir)
+        img_layout.addWidget(img_label)
+        img_layout.addWidget(self.img_edit)
+        img_layout.addWidget(img_browse)
+        layout.addLayout(img_layout)
+
+        # Output directory
+        out_layout = QHBoxLayout()
+        out_label = QLabel("Output directory:", self)
+        self.out_edit = QLineEdit(self)
+        out_browse = QPushButton("Browse...", self)
+        out_browse.clicked.connect(self.browse_out_dir)
+        out_layout.addWidget(out_label)
+        out_layout.addWidget(self.out_edit)
+        out_layout.addWidget(out_browse)
+        layout.addLayout(out_layout)
+
+        # Beam center [ x , y ] – x and y have separate boxes
+        beam_layout = QHBoxLayout()
+        beam_label = QLabel("Beam center:", self)
+        left_bracket = QLabel("[", self)
+        self.beam_x_edit = QLineEdit(self)
+        self.beam_x_edit.setPlaceholderText("X")
+        comma_label = QLabel(",", self)
+        self.beam_y_edit = QLineEdit(self)
+        self.beam_y_edit.setPlaceholderText("Y")
+        right_bracket = QLabel("]", self)
+
+        beam_layout.addWidget(beam_label)
+        beam_layout.addWidget(left_bracket)
+        beam_layout.addWidget(self.beam_x_edit)
+        beam_layout.addWidget(comma_label)
+        beam_layout.addWidget(self.beam_y_edit)
+        beam_layout.addWidget(right_bracket)
+        layout.addLayout(beam_layout)
+
+        # Pixel size line: Pixel size:  [ value ]  microns
+        px_layout = QHBoxLayout()
+        px_label = QLabel("Pixel size:", self)
+        self.pixel_size_edit = QLineEdit(self)
+        self.pixel_size_edit.setText("172.0")  # default in microns
+        px_units = QLabel("microns", self)
+
+        px_layout.addWidget(px_label)
+        px_layout.addWidget(self.pixel_size_edit)
+        px_layout.addWidget(px_units)
+        layout.addLayout(px_layout)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        run_btn = QPushButton("Run", self)
+        run_btn.clicked.connect(self.run_script)
+        cancel_btn = QPushButton("Cancel", self)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(run_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+    def browse_csv(self):
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Select CSV File", "",
+            "All Files (*);;CSV Files (*.csv)")
+        if file_name:
+            self.csv_edit.setText(file_name)
+
+    def browse_img_dir(self):
+        dir_name = QFileDialog.getExistingDirectory(
+            self, "Select Image Directory", "")
+        if dir_name:
+            self.img_edit.setText(dir_name)
+
+    def browse_out_dir(self):
+        dir_name = QFileDialog.getExistingDirectory(
+            self, "Select Output Directory", "")
+        if dir_name:
+            self.out_edit.setText(dir_name)
+
+    def _parse_beam_center(self):
+        """
+        Parse beam center from two line edits (x and y).
+        Returns (x, y) as floats, or raises ValueError.
+        """
+        x_text = self.beam_x_edit.text().strip()
+        y_text = self.beam_y_edit.text().strip()
+        if not x_text or not y_text:
+            raise ValueError("Both x and y must be provided.")
+        x = float(x_text)
+        y = float(y_text)
+        return x, y
+
+    def _parse_pixel_size(self):
+        """
+        Parse pixel size from the line edit.
+        Returns pixel size as float (microns), or raises ValueError.
+        """
+        text = self.pixel_size_edit.text().strip()
+        if not text:
+            raise ValueError("Pixel size must be provided.")
+        return float(text)
+
+    def run_script(self):
+        calib = self.csv_edit.text().strip()
+        img_dir = self.img_edit.text().strip()
+        out_dir = self.out_edit.text().strip()
+
+        if not csv or not os.path.isfile(csv):
+            QMessageBox.warning(self, "Input Error", "Please select a valid CSV file.")
+            return
+        if not img_dir or not os.path.isdir(img_dir):
+            QMessageBox.warning(self, "Input Error", "Please select a valid image directory.")
+            return
+        if not out_dir or not os.path.isdir(out_dir):
+            QMessageBox.warning(self, "Input Error", "Please select a valid output directory.")
+            return
+
+        # Adjust this to point to your standalone script
+        script_path = os.path.join(os.path.dirname(__file__), "standalone_script.py")
+
+        if not os.path.isfile(script_path):
+            QMessageBox.critical(self, "Error", f"Script not found:\n{script_path}")
+            return
+
+        try:
+            # Example: pass arguments as command line args
+            # e.g. python standalone_script.py calib_file img_dir out_dir
+            cmd = [
+            sys.executable, "standalone_script.py",
+            "--calib", calib_path,
+            "--images", img_dir,
+            "--output", out_dir,
+            "--beam-x", str(beam_x),
+            "--beam-y", str(beam_y),
+            "--pixel-size", str(pixel_size),
+            ]
+            subprocess.run(cmd, check=True)
+            QMessageBox.information(self, "Started", "Calibration script has been started.")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to run script:\n{e}")
+
 class PilatusIntegrationGUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -310,6 +486,7 @@ class PilatusIntegrationGUI(QWidget):
         }
         self.init_ui()
         self.worker = None  # Track the active worker thread
+        self.processing_scan_range = False
         
         # Add a progress bar
         self.progress_bar = QProgressBar()
@@ -331,6 +508,7 @@ class PilatusIntegrationGUI(QWidget):
         menu_bar = QMenuBar()
         file_menu = menu_bar.addMenu("File")
         settings_menu = menu_bar.addMenu("Settings")
+        calibration_menu = menu_bar.addMenu("Calibration")
         help_menu = menu_bar.addMenu("Help")
         
         # Import Integrated Data Action
@@ -357,6 +535,16 @@ class PilatusIntegrationGUI(QWidget):
         integration_settings_action = QAction("Integration Settings", self)
         integration_settings_action.triggered.connect(self.open_integration_settings)  # Connect to open_integration_settings
         settings_menu.addAction(integration_settings_action)
+
+        # Run Calibration Action
+        run_calib_action = QAction("Run Calibration", self)
+        run_calib_action.triggered.connect(self.open_run_calib_settings)  # Connect to open_run_calib_settings
+        calibration_menu.addAction(run_calib_action)
+
+        # Edit Calibration Action
+        #edit_calib_action = QAction("Edit Calibration", self)
+        #edit_calib_action.triggered.connect(self.open_edit_calib_settings)  # Connect to open_edit_calib_settings
+        #calibration_menu.addAction(edit_calib_action)
         
         # Open Manual Action
         manual_action = QAction("Open Manual PDF", self)
@@ -631,7 +819,66 @@ class PilatusIntegrationGUI(QWidget):
             QMessageBox.warning(self, "Error", f"Error reading parameters from calibration file: {e}")
     
     def plot_integrated_data(self):
-        """Called when the 'Integrate' button is clicked."""
+        """Called when the Integrate button is clicked."""
+
+        if not self.spec_path or not os.path.isfile(self.spec_path):
+            QMessageBox.warning(
+                self, "Input Error", "Please select a valid SPEC file."
+            )
+            return
+
+        if not self.image_path or not os.path.isdir(self.image_path):
+            QMessageBox.warning(
+                self, "Input Error", "Please select a valid image directory."
+            )
+            return
+
+        if not self.output_path or not os.path.isdir(self.output_path):
+            QMessageBox.warning(
+                self, "Input Error", "Please select a valid output directory."
+            )
+            return
+
+        if self.xyz_map is None:
+            QMessageBox.warning(
+                self, "Input Error", "Please select a valid calibration file."
+            )
+            return
+
+        if not self.user:
+            QMessageBox.warning(
+                self,
+                "Input Error",
+                "No user name was found in the SPEC file."
+            )
+            return
+        # Warn only in response to another button click.
+        if self.worker is not None and self.worker.isRunning():
+            QMessageBox.warning(
+                self,
+                "Integration Running",
+                "An integration is already in progress."
+            )
+            return
+        try:
+            if self.scan_toggle.isChecked():
+                start = int(self.scan_start_input.text())
+                end = int(self.scan_end_input.text())
+
+                if start > end:
+                    raise ValueError(
+                        "The starting scan must not exceed the ending scan."
+                    )
+
+                self.process_scans_sequentially(start, end)
+            else:
+                scan_num = int(self.scan_number_input.text())
+                self.start_integration_thread(scan_num)
+
+        except ValueError as exc:
+            QMessageBox.warning(
+                self, "Input Error", f"Invalid scan number: {exc}"
+            )
         try:
             if self.scan_toggle.isChecked():
                 # Multi-scan mode (process one after another)
@@ -647,16 +894,17 @@ class PilatusIntegrationGUI(QWidget):
             
     def process_scans_sequentially(self, start, end):
         """Process scans one-by-one in the background."""
+        self.processing_scan_range = True
         self.current_scan = start
         self.end_scan = end
         self.start_integration_thread(self.current_scan)
         
     def start_integration_thread(self, scan_num):
         """Start a worker thread for integration."""
-        if self.worker and self.worker.isRunning():
-            self.worker.terminate()  # Stop any existing thread
+        
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
 
-        # Create a new worker
         self.worker = Integration_worker.IntegrationWorker(
             spec_path=self.spec_path,
             scan_num=scan_num,
@@ -664,20 +912,28 @@ class PilatusIntegrationGUI(QWidget):
             user=self.user,
             xyz_map=self.xyz_map,
             settings=self.integration_settings,
-            use_variance=(self.integration_settings["error_model"] == "azimuthal")
+            use_variance=(
+                self.integration_settings["error_model"] == "azimuthal"
+            )
         )
 
-        # Connect signals
         self.worker.progress_updated.connect(self.update_status_bar)
+        self.worker.progress_percent.connect(self.update_progress_bar)
         self.worker.result_ready.connect(self.handle_integration_result)
         self.worker.error_occurred.connect(self.show_error)
 
-        # Start the thread
         self.worker.start()
         
     def update_status_bar(self, message):
         """Update the GUI status bar (thread-safe)."""
         self.status_bar.showMessage(message)
+
+    def update_progress_bar(self, value):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(value)
+
+        if value >= 100:
+           self.progress_bar.setVisible(False)
         
     def handle_integration_result(self, scan_name, x, y, e):
         """Process results when integration finishes."""
@@ -694,14 +950,29 @@ class PilatusIntegrationGUI(QWidget):
         
         # Plot the data
         self.replot_selected()
-        
-        # Process next scan in multi-scan mode
-        if hasattr(self, 'current_scan') and self.current_scan < self.end_scan:
+
+    def integration_thread_finished(self):
+        """
+        Called after the current worker thread has completely stopped.
+        Starts the next scan if a scan range is being processed.
+        """
+        self.worker = None
+
+        if (
+            getattr(self, "processing_scan_range", False)
+            and self.current_scan < self.end_scan
+        ):
             self.current_scan += 1
             self.start_integration_thread(self.current_scan)
+        else:
+            self.processing_scan_range = False
+            self.progress_bar.setVisible(False)
+            self.status_bar.showMessage("Integration complete", 5000)   
 
     def show_error(self, error_msg):
-        """Show error messages in a dialog (thread-safe)."""
+        """Show error messages in a dialog."""
+        self.processing_scan_range = False
+        self.progress_bar.setVisible(False)
         QMessageBox.critical(self, "Error", error_msg)
         
     def closeEvent(self, event):
@@ -880,6 +1151,14 @@ class PilatusIntegrationGUI(QWidget):
             self.integration_settings = dialog.get_settings()
             self.stepsize_input.setText(self.integration_settings['stepsize'])
             self.status_bar.showMessage("Integration settings applied", 3000)
+
+    def open_run_calib_settings(self):
+        """Open the Run Calibration dialog."""
+        dialog = RunCalibDialog(self)
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            self.plot_settings = dialog.get_settings()
+            self.status_bar.showMessage("Calibration file created and applied", 3000)
             
     def show_about_dialog(self):
         """Show the about dialog with program description and icon."""

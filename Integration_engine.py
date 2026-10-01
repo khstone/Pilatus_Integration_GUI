@@ -36,23 +36,60 @@ class RunningStats:  # used to calculate the variance using Welford's algorithm
             return float('nan')  # Variance is undefined for n < 2
         return self.M2 / self.n
     
-def read_RAW(file, minx, maxx, mask = True):
-    ##print "Reading RAW file here..."
+def read_RAW(file, minx, maxx, mask=True):
+    rows = 195
+    columns = 487
+    expected_values = rows * columns
+    expected_bytes = expected_values * np.dtype(np.int32).itemsize
+
+    if not os.path.isfile(file):
+        raise FileNotFoundError(f"RAW image not found: {file}")
+
+    actual_bytes = os.path.getsize(file)
+
+    if actual_bytes != expected_bytes:
+        raise ValueError(
+            f"Unexpected RAW file size for:\n{file}\n"
+            f"Expected {expected_bytes} bytes "
+            f"({rows} x {columns} int32 values), "
+            f"but found {actual_bytes} bytes."
+        )
+
     try:
-        im = open(file, 'rb')
-        arr = np.fromstring(im.read(), dtype='int32')
-        im.close()
-        arr.shape = (195, 487)
-        #arr = np.fliplr(arr)               # for the way mounted at BL2-1
+        with open(file, "rb") as image_file:
+            # copy() ensures that masking can modify the array.
+            arr = np.frombuffer(
+                image_file.read(),
+                dtype=np.int32
+            ).copy()
+
+        if arr.size != expected_values:
+            raise ValueError(
+                f"Expected {expected_values} pixels, "
+                f"but read {arr.size} pixels from {file}"
+            )
+
+        arr = arr.reshape((rows, columns))
+
         if mask:
-            for i in range(0, minx):
-                arr[:,i] = -2.0
-            for i in range(maxx, 487):
-                arr[:,i] = -2.0
+            minx = max(0, min(columns, int(minx)))
+            maxx = max(0, min(columns, int(maxx)))
+
+            if minx >= maxx:
+                raise ValueError(
+                    f"Invalid clipping range: minx={minx}, maxx={maxx}"
+                )
+
+            arr[:, :minx] = -2
+            arr[:, maxx:] = -2
+
         return arr
-    except:
-        print("Error reading file: %s" % file)
-        return None
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to read RAW image:\n{file}\n"
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
 def SPECread(filename, scan_number):
     #print "Reading SPEC file here..."
@@ -194,7 +231,7 @@ class IntegrationEngine:
             
             # Report progress if callback exists
             if self.progress_callback:
-                self.progress_callback(k/len(tth))
+                self.progress_callback((k + 1) / len(tth))
             
         nonzeros = np.nonzero(digit_norm)
         interp = interpolate.InterpolatedUnivariateSpline(bins[nonzeros], digit_y[nonzeros]/digit_norm[nonzeros])
@@ -215,7 +252,7 @@ class IntegrationEngine:
         
         # Report progress if callback exists
         if self.progress_callback:
-            self.progress_callback(step * 100 / total_steps)
+            self.progress_callback(1.0)
         
         return outname, interpbins[good_data], mult * interpy[good_data], np.sqrt(np.abs(mult * interpy[good_data]))
 
@@ -250,7 +287,7 @@ class IntegrationEngine:
                     y_list[bin_indices[i]].add(y[i])
             # Report progress if callback exists
             if self.progress_callback:
-                self.progress_callback(k/len(tth))
+                self.progress_callback((k + 1) / len(tth))
                     
         digit_norm = [obj.mean for obj in y_list]
         variance = [obj.variance() for obj in y_list]
