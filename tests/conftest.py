@@ -4,6 +4,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Offscreen Qt has no fonts unless pointed at them; layout tests measure text-dependent sizes.
+if os.path.isdir(r"C:\Windows\Fonts"):
+    os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 DATA = os.path.join(os.path.dirname(__file__), "data", "CaCO3_CuO_scan1")
 SPEC = os.path.join(DATA, "KHS10_27D_CaCO3_CuO_anneal")

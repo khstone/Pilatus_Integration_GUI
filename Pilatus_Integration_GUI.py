@@ -13,7 +13,8 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QLineEdit, QPushButton, QFileDialog, QMessageBox, QSizePolicy, QListWidget,
                              QCheckBox, QStatusBar, QMenuBar, QAction, QDialog, QFormLayout, QSpinBox,
                              QDoubleSpinBox, QColorDialog, QComboBox, QGroupBox, QRadioButton, QAbstractItemView,
-                             QListWidgetItem, QSlider, QStyleFactory, QProgressBar)
+                             QListWidgetItem, QSlider, QStyleFactory, QProgressBar, QGridLayout,
+                             QScrollArea, QSplitter, QStackedWidget, QFrame, QTabWidget)
 from PyQt5.QtGui import QPixmap, QIcon, QDesktopServices
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QColor
@@ -519,10 +520,8 @@ class PilatusIntegrationGUI(QWidget):
     def init_ui(self):
         # Layout Setup
         main_layout = QVBoxLayout()  # Changed to QVBoxLayout for toolbar placement
-        input_layout = QHBoxLayout() # Contains left and right layouts
-        left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        
+
         # Menu Bar
         menu_bar = QMenuBar()
         file_menu = menu_bar.addMenu("File")
@@ -575,163 +574,184 @@ class PilatusIntegrationGUI(QWidget):
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
 
-        # Input Fields
-        self.calib_path_label = QLabel("Calibration File:")
+        # ---------------- Input fields: one row each (label | field | Browse) ----------------
+        self.calib_path_label = QLabel("Calibration:")
         self.calib_path_input = QLineEdit(self)
         self.calib_path_button = QPushButton("Browse", self)
         self.calib_path_button.clicked.connect(self.browse_calib_file)
-        calib_layout = QHBoxLayout()
-        calib_layout.addWidget(self.calib_path_input)
-        calib_layout.addWidget(self.calib_path_button)
 
-        self.spec_path_label = QLabel("Spec File:")
+        self.spec_path_label = QLabel("SPEC file:")
         self.spec_path_input = QLineEdit(self)
         self.spec_path_button = QPushButton("Browse", self)
         self.spec_path_button.clicked.connect(self.browse_spec_file)
-        spec_layout = QHBoxLayout()
-        spec_layout.addWidget(self.spec_path_input)
-        spec_layout.addWidget(self.spec_path_button)
 
-        self.user_label = QLabel("User:")
-        self.user_input = QLineEdit(self)
-        self.user_input.setReadOnly(True)
-
-        self.stepsize_label = QLabel("Step Size:")
-        self.stepsize_input = QLineEdit(self)
-        self.stepsize_input.setText(self.integration_settings["stepsize"])
-        self.stepsize_input.setReadOnly(True)
-
-        # Image Path Section
-        self.image_path_label = QLabel("Image Path:")
+        self.image_path_label = QLabel("Images:")
         self.image_path_input = QLineEdit(self)
         self.image_path_button = QPushButton("Browse", self)
         self.image_path_button.clicked.connect(self.browse_image_directory)
-        image_path_layout = QHBoxLayout()
-        image_path_layout.addWidget(self.image_path_input)
-        image_path_layout.addWidget(self.image_path_button)
-        
-        # Output Path Section
-        self.output_path_label = QLabel("Output Path:")
+
+        self.output_path_label = QLabel("Output:")
         self.output_path_input = QLineEdit(self)
         self.output_path_button = QPushButton("Browse", self)
         self.output_path_button.clicked.connect(self.browse_output_directory)
-        output_path_layout = QHBoxLayout()
-        output_path_layout.addWidget(self.output_path_input)
-        output_path_layout.addWidget(self.output_path_button)
 
-        # Scan Number Input
-        self.scan_toggle = QCheckBox("Use Scan Range", self)
+        # User and step size are read-only (set from the SPEC file and Integration Settings):
+        # shown together on one compact line.
+        self.user_label = QLabel("User:")
+        self.user_input = QLineEdit(self)
+        self.user_input.setReadOnly(True)
+        self.user_input.setFrame(False)
+        self.user_input.setToolTip("Read from the SPEC file")
+        self.stepsize_label = QLabel("Step:")
+        self.stepsize_input = QLineEdit(self)
+        self.stepsize_input.setText(self.integration_settings["stepsize"])
+        self.stepsize_input.setReadOnly(True)
+        self.stepsize_input.setFrame(False)
+        self.stepsize_input.setMaximumWidth(70)
+        self.stepsize_input.setToolTip("Change in Settings > Integration Settings")
+        info_row = QHBoxLayout()
+        info_row.addWidget(self.user_input, 1)
+        info_row.addWidget(self.stepsize_label)
+        info_row.addWidget(self.stepsize_input)
+
+        # Scan selection: one row; single/range pages in a stack so switching modes never
+        # changes the panel height (it used to push the data list out of view).
+        self.scan_toggle = QCheckBox("Range", self)
+        self.scan_toggle.setToolTip("Integrate a range of scans")
         self.scan_toggle.stateChanged.connect(self.toggle_scan_input)
-
-        self.scan_number_label = QLabel("Scan Number:")
+        self.scan_number_label = QLabel("")
         self.scan_number_input = QLineEdit(self)
         self.scan_number_input.setText("1")
-
-        self.scan_range_label = QLabel("Scan Range:")
+        self.scan_range_label = QLabel("")
         self.scan_start_input = QLineEdit(self)
         self.scan_end_input = QLineEdit(self)
-
-        # Scan Range Layout
-        scan_range_layout = QHBoxLayout()
+        single_page = QWidget()
+        single_layout = QHBoxLayout(single_page)
+        single_layout.setContentsMargins(0, 0, 0, 0)
+        single_layout.addWidget(self.scan_number_input)
+        self.scan_range_container = QWidget()
+        scan_range_layout = QHBoxLayout(self.scan_range_container)
+        scan_range_layout.setContentsMargins(0, 0, 0, 0)
         scan_range_layout.addWidget(self.scan_start_input)
-        dash_label = QLabel(" - ")
+        dash_label = QLabel("to")
         dash_label.setAlignment(Qt.AlignCenter)
         scan_range_layout.addWidget(dash_label)
         scan_range_layout.addWidget(self.scan_end_input)
+        self.scan_stack = QStackedWidget()
+        self.scan_stack.addWidget(single_page)
+        self.scan_stack.addWidget(self.scan_range_container)
+        scan_row = QHBoxLayout()
+        scan_row.addWidget(self.scan_stack, 1)
+        scan_row.addWidget(self.scan_toggle)
 
-        # Create a container widget for the scan range layout
-        self.scan_range_container = QWidget()
-        self.scan_range_container.setLayout(scan_range_layout)
-        
-        # Plot Options
-        self.overlay_toggle = QCheckBox("Overlay Plots", self)
-        self.overlay_toggle.stateChanged.connect(self.toggle_overlay)
+        form = QGridLayout()
+        form.setHorizontalSpacing(6)
+        form.setVerticalSpacing(4)
+        for r, (lab, field, btn) in enumerate([
+                (self.calib_path_label, self.calib_path_input, self.calib_path_button),
+                (self.spec_path_label, self.spec_path_input, self.spec_path_button),
+                (self.image_path_label, self.image_path_input, self.image_path_button),
+                (self.output_path_label, self.output_path_input, self.output_path_button)]):
+            form.addWidget(lab, r, 0)
+            form.addWidget(field, r, 1)
+            form.addWidget(btn, r, 2)
+        form.addWidget(self.user_label, 4, 0)
+        form.addLayout(info_row, 4, 1, 1, 2)
+        form.addWidget(QLabel("Scan:"), 5, 0)
+        form.addLayout(scan_row, 5, 1, 1, 2)
+        form.setColumnStretch(1, 1)
 
-        self.contour_plot_toggle = QCheckBox("Contour Plot", self)
-        self.contour_plot_toggle.stateChanged.connect(self.toggle_contour_plot)
-        self.contour_plot_toggle.setEnabled(False)
-	
-        # Initial Visibility
-        self.scan_number_label.setVisible(True)
-        self.scan_number_input.setVisible(True)
-        self.scan_range_label.setVisible(False)
-        self.scan_range_container.setVisible(False)  # Hide the container instead
-
-        # Integrate Button
+        # Integrate button and plot options on one row
         integrate_button = QPushButton("Integrate", self)
         integrate_button.clicked.connect(self.plot_integrated_data)
         self.integrate_button = integrate_button
+        self.overlay_toggle = QCheckBox("Overlay", self)
+        self.overlay_toggle.stateChanged.connect(self.toggle_overlay)
+        self.contour_plot_toggle = QCheckBox("Contour", self)
+        self.contour_plot_toggle.stateChanged.connect(self.toggle_contour_plot)
+        self.contour_plot_toggle.setEnabled(False)
+        action_row = QHBoxLayout()
+        action_row.addWidget(integrate_button, 1)
+        action_row.addWidget(self.overlay_toggle)
+        action_row.addWidget(self.contour_plot_toggle)
 
-        # Live Mode: integrate each new scan automatically and show a live waterfall
+        # ---------------- Live Mode (compact) ----------------
         self.live_group = QGroupBox("Live Mode")
         live_layout = QVBoxLayout()
-        self.live_toggle = QCheckBox("Live integration (auto-integrate new scans)", self)
+        live_layout.setSpacing(3)
+        self.live_toggle = QCheckBox("Live integration", self)
+        self.live_toggle.setToolTip("Integrate each new scan automatically as soon as it is complete")
         self.live_toggle.stateChanged.connect(self.toggle_live)
-        live_start_layout = QHBoxLayout()
-        live_start_layout.addWidget(QLabel("Start at scan:"))
         self.live_start_input = QLineEdit(self)
-        self.live_start_input.setPlaceholderText("scan in progress / next")
+        self.live_start_input.setPlaceholderText("current")
+        self.live_start_input.setMaximumWidth(80)
         self.live_start_input.setToolTip("Leave blank to start with the scan in progress (or the next scan). "
                                          "Enter a number to also integrate earlier scans already collected.")
-        live_start_layout.addWidget(self.live_start_input)
-        self.live_detect_toggle = QCheckBox("Detect transformations (insitu-seg)", self)
+        live_row1 = QHBoxLayout()
+        live_row1.addWidget(self.live_toggle)
+        live_row1.addStretch(1)
+        live_row1.addWidget(QLabel("Start at:"))
+        live_row1.addWidget(self.live_start_input)
+        self.live_detect_toggle = QCheckBox("Detect events", self)
         self.live_detect_toggle.setEnabled(HAVE_INSITU_SEG)
         self.live_detect_toggle.setChecked(HAVE_INSITU_SEG)
         self.live_detect_toggle.setToolTip(
-            "Flags reactions, phase changes, and peak sharpening/broadening a few scans behind."
+            "insitu-seg: flags reactions, phase changes, and peak sharpening/broadening a few scans behind."
             if HAVE_INSITU_SEG else "Install the insitu-seg package to enable.")
-        self.live_follow_toggle = QCheckBox("Show live waterfall", self)
+        self.live_follow_toggle = QCheckBox("Live waterfall", self)
         self.live_follow_toggle.setChecked(True)
         self.live_follow_toggle.stateChanged.connect(lambda _: self.plot_live_waterfall())
+        live_row2 = QHBoxLayout()
+        live_row2.addWidget(self.live_detect_toggle)
+        live_row2.addWidget(self.live_follow_toggle)
+        live_row2.addStretch(1)
         self.live_status_label = QLabel("Live mode off", self)
         self.live_status_label.setWordWrap(True)
+        # Detected events live in a tab beside the data list (more room, no cost to controls)
         self.event_list = QListWidget(self)
-        self.event_list.setMaximumHeight(110)
         self.event_list.setToolTip("Detected transformations: scan, confidence, detector families")
-        for wdg in (self.live_toggle,):
-            live_layout.addWidget(wdg)
-        live_layout.addLayout(live_start_layout)
-        live_layout.addWidget(self.live_detect_toggle)
-        live_layout.addWidget(self.live_follow_toggle)
+        live_layout.addLayout(live_row1)
+        live_layout.addLayout(live_row2)
         live_layout.addWidget(self.live_status_label)
-        live_layout.addWidget(QLabel("Detected events:"))
-        live_layout.addWidget(self.event_list)
         self.live_group.setLayout(live_layout)
-        
-        # Plot List Widget
+
+        # ---------------- Integrated data list ----------------
         self.plot_list = QListWidget(self)
         self.plot_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.plot_list.itemClicked.connect(self.toggle_highlight)  # Connect itemClicked signal to toggle_highlight
         self.plot_list_label = QLabel("Integrated Data:")
 
-        # Add input fields to the left layout
-        left_layout.addWidget(self.calib_path_label)
-        left_layout.addLayout(calib_layout)
-        left_layout.addWidget(self.spec_path_label)
-        left_layout.addLayout(spec_layout)
-        left_layout.addWidget(self.user_label)
-        left_layout.addWidget(self.user_input)
-        left_layout.addWidget(self.stepsize_label)
-        left_layout.addWidget(self.stepsize_input)
-        left_layout.addWidget(self.image_path_label)
-        left_layout.addLayout(image_path_layout)  # Adding image path layout
-        left_layout.addWidget(self.output_path_label)
-        left_layout.addLayout(output_path_layout)  # Adding image path layout
-        left_layout.addWidget(self.scan_toggle)
-        left_layout.addWidget(self.scan_number_label)
-        left_layout.addWidget(self.scan_number_input)
-        left_layout.addWidget(self.scan_range_label)
-        left_layout.addWidget(self.scan_range_container)  # Add the container instead
-        left_layout.addWidget(integrate_button)
-        left_layout.addWidget(self.overlay_toggle)  # Add the toggle to the layout
-        left_layout.addWidget(self.contour_plot_toggle)
-        left_layout.addWidget(self.live_group)
-        left_layout.addWidget(self.plot_list_label)
-        left_layout.addWidget(self.plot_list)
-        
-        # Add left and right to input layout
-        input_layout.addLayout(left_layout, 1)
-        input_layout.addLayout(right_layout, 3)
+        # Controls scroll if the window is short; a draggable divider separates them from the
+        # data list, which always keeps usable space.
+        controls = QWidget()
+        controls_layout = QVBoxLayout(controls)
+        controls_layout.setContentsMargins(0, 0, 4, 0)
+        controls_layout.addLayout(form)
+        controls_layout.addLayout(action_row)
+        controls_layout.addWidget(self.live_group)
+        controls_layout.addStretch(1)
+        self.controls_scroll = QScrollArea()
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setFrameShape(QFrame.NoFrame)
+        self.controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.controls_scroll.setWidget(controls)
+
+        self.data_tabs = QTabWidget()
+        self.data_tabs.addTab(self.plot_list, "Integrated Data")
+        self.data_tabs.addTab(self.event_list, "Events")
+        list_panel = QWidget()
+        list_layout = QVBoxLayout(list_panel)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.addWidget(self.data_tabs)
+        self.plot_list.setMinimumHeight(80)
+
+        self.left_splitter = QSplitter(Qt.Vertical)
+        self.left_splitter.addWidget(self.controls_scroll)
+        self.left_splitter.addWidget(list_panel)
+        self.left_splitter.setChildrenCollapsible(False)
+        self.left_splitter.setStretchFactor(0, 0)
+        self.left_splitter.setStretchFactor(1, 1)
+        self.left_splitter.setSizes([controls.sizeHint().height(), 300])
         
         # Status Bar
         self.status_bar = QStatusBar()
@@ -751,11 +771,21 @@ class PilatusIntegrationGUI(QWidget):
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         right_layout.addWidget(QLabel("Integration Plot:"))
         right_layout.addWidget(self.canvas)
-
-        # Add widgets to layout
-        main_layout.addLayout(input_layout)
         right_layout.addWidget(self.toolbar) # Add the toolbar to the right layout
-        
+        right_panel = QWidget()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_panel.setLayout(right_layout)
+
+        # Left panel | plot, with a draggable divider so the left panel can be widened
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(self.left_splitter)
+        self.main_splitter.addWidget(right_panel)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([340, 660])
+        main_layout.addWidget(self.main_splitter)
+
         # Add central layout and status bar to the main layout
         main_layout.addWidget(self.status_bar)
         
@@ -763,7 +793,12 @@ class PilatusIntegrationGUI(QWidget):
         self.setLayout(main_layout)
         self.setWindowTitle("Pilatus Integration GUI")
         self.setWindowIcon(QIcon(resource_path("icon.png"))) # Sets the window icon
-        self.setGeometry(100, 100, 1000, 600)
+        # Default 1200x800, capped to the available screen
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        w0 = min(1200, int(avail.width() * 0.95)) if avail else 1200
+        h0 = min(800, int(avail.height() * 0.9)) if avail else 800
+        self.setGeometry(100, 60, w0, h0)
         
         self.status_bar.showMessage("Ready", 3000)  # Initial message
 
@@ -1018,7 +1053,32 @@ class PilatusIntegrationGUI(QWidget):
         self.processing_scan_range = False
         self.progress_bar.setVisible(False)
         QMessageBox.critical(self, "Error", error_msg)
-        
+
+    def showEvent(self, event):
+        """On first show, guarantee the data list a share of the left panel: controls get at
+        most ~60% of the height (they scroll if they need more). Later divider drags are kept."""
+        super().showEvent(event)
+        if not getattr(self, "_left_split_done", False):
+            self._left_split_done = True
+            self._apply_left_split()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Until the user drags the divider, keep the guaranteed split as the window resizes.
+        if getattr(self, "_left_split_done", False) and not getattr(self, "_user_moved_split", False):
+            self._apply_left_split()
+
+    def _apply_left_split(self):
+        total = sum(self.left_splitter.sizes()) or self.left_splitter.height()
+        want = self.controls_scroll.widget().sizeHint().height()
+        controls_h = int(min(want, 0.6 * total))
+        self.left_splitter.blockSignals(True)
+        self.left_splitter.setSizes([controls_h, max(total - controls_h, 1)])
+        self.left_splitter.blockSignals(False)
+        if not getattr(self, "_split_signal_connected", False):
+            self.left_splitter.splitterMoved.connect(lambda *_: setattr(self, "_user_moved_split", True))
+            self._split_signal_connected = True
+
     def closeEvent(self, event):
         if self.live.active:
             self.live.active = False
@@ -1049,6 +1109,7 @@ class PilatusIntegrationGUI(QWidget):
                 return
             self.live_scans, self.live_events = [], []
             self.event_list.clear()
+            self.data_tabs.setTabText(1, "Events")
             self.integrate_button.setEnabled(False)
             self.live_start_input.setEnabled(False)
             self.live_detect_toggle.setEnabled(False)
@@ -1080,6 +1141,7 @@ class PilatusIntegrationGUI(QWidget):
             t = f", {ev.T_C:.0f} °C" if ev.T_C is not None else ""
             d = f", {ev.profile_direction}" if ev.profile_direction else ""
             self.event_list.addItem(f"scan {ev.scan} [{ev.confidence}] {'+'.join(ev.families)}{d}{t}")
+        self.data_tabs.setTabText(1, f"Events ({len(self.live_events)})")
         self.plot_live_waterfall()
 
     def plot_live_waterfall(self):
@@ -1270,12 +1332,10 @@ class PilatusIntegrationGUI(QWidget):
         self.status_bar.showMessage(f"Contour plot {'enabled' if self.contour_plot else 'disabled'}", 5000)
 
     def toggle_scan_input(self, state):
-        """Toggle visibility of scan input fields based on checkbox state."""
+        """Switch between single-scan and range inputs. Both live in one stacked widget, so
+        the panel height does not change (it used to push the data list out of view)."""
         use_scan_range = (state == Qt.Checked)
-        self.scan_number_label.setVisible(not use_scan_range)
-        self.scan_number_input.setVisible(not use_scan_range)
-        self.scan_range_label.setVisible(use_scan_range)
-        self.scan_range_container.setVisible(use_scan_range)  # Show/hide the container
+        self.scan_stack.setCurrentIndex(1 if use_scan_range else 0)
         self.status_bar.showMessage("Switched scan input mode", 3000)
         
     def open_plot_settings(self):
@@ -1332,6 +1392,7 @@ class PilatusIntegrationGUI(QWidget):
                 self.live_toggle.setChecked(False)
             self.live_scans, self.live_events = [], []
             self.event_list.clear()
+            self.data_tabs.setTabText(1, "Events")
             self.live_status_label.setText("Live mode off")
 
             # Clear the plot
@@ -1349,11 +1410,8 @@ class PilatusIntegrationGUI(QWidget):
             self.scan_end_input.clear()
             self.scan_toggle.setChecked(False)
     
-            # Reset visibility of scan input fields
-            self.scan_number_label.setVisible(True)
-            self.scan_number_input.setVisible(True)
-            self.scan_range_label.setVisible(False)
-            self.scan_range_container.setVisible(False)
+            # Back to single-scan input (setChecked(False) above also does this via the signal)
+            self.scan_stack.setCurrentIndex(0)
     
             # Clear plot data
             self.plot_list.clear() # clear items from plot list

@@ -89,6 +89,22 @@ def test_real_worker_end_to_end_writes_reference_xye(tmp_path):
     w.close()
 
 
+def test_data_list_keeps_its_space_when_switching_scan_mode(window):
+    """Switching single <-> range used to push the data list nearly out of view."""
+    w, app = window
+    w.resize(1000, 600)
+    w.show()
+    for _ in range(5):
+        app.processEvents()
+    h0 = w.plot_list.height()
+    for state in (True, False, True, False):
+        w.scan_toggle.setChecked(state)
+        for _ in range(5):
+            app.processEvents()
+        assert w.plot_list.height() == h0, "data list height must not change with scan mode"
+    assert h0 >= 120, f"data list should keep usable space in a 1000x600 window, got {h0}px"
+
+
 def test_calibration_menu_does_not_crash(window, monkeypatch):
     w, app = window
     shown = []
