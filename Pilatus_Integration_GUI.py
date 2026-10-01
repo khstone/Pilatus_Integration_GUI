@@ -879,19 +879,9 @@ class PilatusIntegrationGUI(QWidget):
             QMessageBox.warning(
                 self, "Input Error", f"Invalid scan number: {exc}"
             )
-        try:
-            if self.scan_toggle.isChecked():
-                # Multi-scan mode (process one after another)
-                start = int(self.scan_start_input.text())
-                end = int(self.scan_end_input.text())
-                self.process_scans_sequentially(start, end)
-            else:
-                # Single-scan mode
-                scan_num = int(self.scan_number_input.text())
-                self.start_integration_thread(scan_num)
-        except ValueError as e:
-            QMessageBox.warning(self, "Input Error", f"Invalid scan number: {e}")
-            
+        # (2026-10: a duplicate copy of the block above was removed; it started every
+        # integration twice and replaced self.worker while the first thread was running.)
+
     def process_scans_sequentially(self, start, end):
         """Process scans one-by-one in the background."""
         self.processing_scan_range = True
@@ -921,6 +911,9 @@ class PilatusIntegrationGUI(QWidget):
         self.worker.progress_percent.connect(self.update_progress_bar)
         self.worker.result_ready.connect(self.handle_integration_result)
         self.worker.error_occurred.connect(self.show_error)
+        # Advance a scan range when this thread ends (2026-10: was never connected, so a
+        # range stopped after its first scan).
+        self.worker.finished.connect(self.integration_thread_finished)
 
         self.worker.start()
         
@@ -956,6 +949,12 @@ class PilatusIntegrationGUI(QWidget):
         Called after the current worker thread has completely stopped.
         Starts the next scan if a scan range is being processed.
         """
+        # Let the thread fully exit before releasing it: destroying a QThread that is still
+        # running aborts the whole process.
+        finished = self.worker
+        if finished is not None:
+            finished.wait()
+            finished.deleteLater()
         self.worker = None
 
         if (
@@ -1153,12 +1152,14 @@ class PilatusIntegrationGUI(QWidget):
             self.status_bar.showMessage("Integration settings applied", 3000)
 
     def open_run_calib_settings(self):
-        """Open the Run Calibration dialog."""
-        dialog = RunCalibDialog(self)
-        result = dialog.exec_()
-        if result == QDialog.Accepted:
-            self.plot_settings = dialog.get_settings()
-            self.status_bar.showMessage("Calibration file created and applied", 3000)
+        """Calibration from the GUI is not available yet (RunCalibDialog is work in progress:
+        it references a script and variables that do not exist, and on success would have
+        overwritten the plot settings). Until it is built in, point the user to the CLI."""
+        QMessageBox.information(
+            self, "Run Calibration",
+            "Calibration from the GUI is not available yet.\n\n"
+            "Run the command-line calibration script, then load the .cal file it writes "
+            "with the Calibration File 'Browse' button.")
             
     def show_about_dialog(self):
         """Show the about dialog with program description and icon."""
