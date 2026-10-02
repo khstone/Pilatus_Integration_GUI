@@ -6,3 +6,6 @@
 /sandbox2.py
 /Welford_test.py
 __pycache__/
+
+# manual build outputs (regenerate with docs/manual/)
+docs/manual/build/

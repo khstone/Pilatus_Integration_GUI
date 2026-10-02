@@ -31,14 +31,23 @@ try:                                    # optional: transformation detection in 
 except ImportError:
     HAVE_INSITU_SEG = False
 
-# This is only needed when using pyinstaller to create an executable
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+def program_dir():
+    """Folder the program lives in: the .exe's folder when built with PyInstaller, otherwise
+    the folder of this script. Independent of the current working directory."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
+
+# Bundled resources (icons): inside the PyInstaller bundle when frozen, else the program folder.
+def resource_path(relative_path):
+    base_path = getattr(sys, "_MEIPASS", None) or program_dir()
     return os.path.join(base_path, relative_path)
+
+
+# Fallback when manual.pdf is not next to the program. The repository is private: this link
+# only works for people with access to it.
+MANUAL_URL = "https://github.com/khstone/Pilatus_Integration_GUI/blob/main/manual.pdf"
 
 class HelpDialog(QDialog):
     """Resizable, scrollable, non-modal help page (HTML from help_text)."""
@@ -1498,22 +1507,37 @@ class PilatusIntegrationGUI(QWidget):
         dialog.exec_()
         
     def open_manual(self):
-        """Open the PDF manual using the default PDF viewer."""
-        pdf_path = "manual.pdf"  # Path to your PDF file
-        # Ensure that the path is correct; adjust the path if necessary.
-        if QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path)):
-            self.status_bar.showMessage(f"Opened manual: {pdf_path}", 5000)
-        else:
-            QMessageBox.warning(self, "Error", f"Could not open manual: {pdf_path}")
+        """Open manual.pdf from the program's own folder (the .exe's folder when built). If it is
+        not there, open the copy on GitHub instead."""
+        pdf_path = os.path.join(program_dir(), "manual.pdf")
+        if os.path.isfile(pdf_path):
+            if QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path)):
+                self.status_bar.showMessage(f"Opened manual: {pdf_path}", 5000)
+                return pdf_path
+            QMessageBox.warning(self, "Manual", f"Could not open the manual with the default PDF viewer:\n{pdf_path}")
+            return None
+        if QDesktopServices.openUrl(QUrl(MANUAL_URL)):
+            self.status_bar.showMessage("manual.pdf not found next to the program; opened the online copy", 8000)
+            return MANUAL_URL
+        QMessageBox.warning(self, "Manual",
+                            f"manual.pdf was not found in\n{program_dir()}\n\nThe online copy is at\n{MANUAL_URL}")
+        return None
             
     def clear_data(self):
-        """Clears all data and resets the GUI, with a confirmation dialog."""
+        """Clear the data (integrated/imported patterns, events, plot) after confirmation.
+
+        The entered fields and settings (calibration, SPEC file, images, output, scan inputs,
+        integration and plot settings) are kept, so the next scan can be integrated straight
+        away. (Before 2026-10 the fields were blanked on screen while the old paths stayed in
+        use behind them.)"""
         reply = QMessageBox.question(self, 'Clear Data',
-                                    "Are you sure you want to erase all of the data and start a new session?",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-    
+                                     "Remove all integrated and imported data and detected events from this "
+                                     "session?\n\nFiles on disk are not touched, and your calibration, SPEC, "
+                                     "image and output settings are kept.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
         if reply == QMessageBox.Yes:
-            # Stop live mode first, then reset its lists
+            # Stop live mode first (it would keep adding scans), then reset its lists
             if self.live.active:
                 self.live_toggle.setChecked(False)
             self.live_scans, self.live_events = [], []
@@ -1522,30 +1546,18 @@ class PilatusIntegrationGUI(QWidget):
             self.data_tabs.setTabText(1, "Events")
             self.live_status_label.setText("Live mode off")
 
-            # Clear the plot
+            # Clear the plot (and any waterfall colorbar)
+            if hasattr(self, 'colorbar') and self.colorbar:
+                self.colorbar.remove()
+                self.colorbar = None
             self.ax.clear()
             self.canvas.draw()
 
-            # Reset input fields
-            self.calib_path_input.clear()
-            self.spec_path_input.clear()
-            self.user_input.clear()
-            self.stepsize_input.setText("0.005")
-            self.image_path_input.clear()
-            self.scan_number_input.setText("1")
-            self.scan_start_input.clear()
-            self.scan_end_input.clear()
-            self.scan_toggle.setChecked(False)
-    
-            # Back to single-scan input (setChecked(False) above also does this via the signal)
-            self.scan_stack.setCurrentIndex(0)
-    
             # Clear plot data
-            self.plot_list.clear() # clear items from plot list
-            self.plot_data = {}    # clear stored plot data
-    
-            # Status bar message
-            self.status_bar.showMessage("Data cleared, ready for a fresh start!", 5000)
+            self.plot_list.clear()
+            self.plot_data = {}
+
+            self.status_bar.showMessage("Data cleared; settings kept", 5000)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
